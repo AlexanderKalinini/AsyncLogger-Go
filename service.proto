@@ -1,16 +1,6 @@
 syntax = "proto3";
 
-// option go_package = ".;main";
-// option go_package = "./api";
-option go_package = ".";
-
-// для генерации сервиса:
-// protoc --go_out=. --go-grpc_out=. *.proto
-// а лучше воспользуйтесь командой make gen из прилагаемого мейкфайла
-
-// у вас должен быть установлен protoc 
-// полученный при генерации код (service.pb.go и service_grpc.pb.go) при загрузки в автогрейдер надо будет положить в service.go
-// на время локальной разработки можно ничего не делать
+option go_package = ".;main";
 
 package main;
 
