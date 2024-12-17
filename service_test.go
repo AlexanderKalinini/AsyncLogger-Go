@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"google.golang.org/grpc/codes"
 	"io"
+	"log"
 	"reflect"
 	"runtime"
 	"strings"
@@ -25,9 +26,9 @@ const (
 	"logger2":          ["/main.Admin/Logging"],
 	"stat1":            ["/main.Admin/Statistics"],
 	"stat2":            ["/main.Admin/Statistics"],
-	"biz_user":         ["/main.Biz/Check", "/main.Biz/Add"],
+	"biz_user":         ["/main.Biz/Check", "/main.Biz/AddToEventChs"],
 	"biz_admin":        ["/main.Biz/*"],
-	"after_disconnect": ["/main.Biz/Add"]
+	"after_disconnect": ["/main.Biz/AddToEventChs"]
 }`
 )
 
@@ -120,7 +121,7 @@ func TestACLParseError(t *testing.T) {
 	}
 }
 
-// // ACL (права на методы доступа) работает корректно
+// ACL (права на методы доступа) работает корректно
 func TestACL(t *testing.T) {
 	wait(1)
 	ctx, finish := context.WithCancel(context.Background())
@@ -142,7 +143,7 @@ func TestACL(t *testing.T) {
 
 	for idx, ctx := range []context.Context{
 		context.Background(),       // нет поля для ACL
-		getConsumerCtx("unknown"),  // поле есть, неизвестный консюмер
+		getConsumerCtx("unknown"),  // поле есть, неизвестный консьюмер
 		getConsumerCtx("biz_user"), // поле есть, нет доступа
 	} {
 		_, err = biz.Test(ctx, &Nothing{})
@@ -167,7 +168,7 @@ func TestACL(t *testing.T) {
 		t.Fatalf("ACL fail: unexpected error: %v", err)
 	}
 
-	// ACL на методах, которые возвращают поток данных
+	fmt.Println("ACL на методах, которые возвращают поток данных")
 	logger, err := adm.Logging(getConsumerCtx("unknown"), &Nothing{})
 	_, err = logger.Recv()
 	if err == nil {
@@ -196,10 +197,11 @@ func TestLogging(t *testing.T) {
 	adm := NewAdminClient(conn)
 
 	logStream1, err := adm.Logging(getConsumerCtx("logger1"), &Nothing{})
+	fmt.Println("start stream 1")
 	time.Sleep(1 * time.Millisecond)
 
 	logStream2, err := adm.Logging(getConsumerCtx("logger2"), &Nothing{})
-
+	fmt.Println("start stream 2")
 	logData1 := []*Event{}
 	logData2 := []*Event{}
 
@@ -220,10 +222,10 @@ func TestLogging(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 4; i++ {
+			t.Log("stream1 ", i)
 			evt, err := logStream1.Recv()
-			// log.Println("logger 1", evt, err)
 			if err != nil {
-				t.Errorf("unexpected error: %v, awaiting event", err)
+				t.Errorf("unexpected error: %v, awaiting eventChs", err)
 				return
 			}
 			// evt.Host читайте как evt.RemoteAddr
@@ -232,7 +234,7 @@ func TestLogging(t *testing.T) {
 				return
 			}
 			// это грязный хак
-			// protobuf добавляет к структуре свои поля, которвые не видны при приведении к строке и при reflect.DeepEqual
+			// protobuf добавляет к структуре свои поля, которые не видны при приведении к строке и при reflect.DeepEqual
 			// поэтому берем не оригинал сообщения, а только нужные значения
 			logData1 = append(logData1, &Event{Consumer: evt.Consumer, Method: evt.Method})
 		}
@@ -240,10 +242,11 @@ func TestLogging(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 3; i++ {
+			t.Log("stream2 ", i)
 			evt, err := logStream2.Recv()
-			// log.Println("logger 2", evt, err)
+			log.Println("logger 2", evt, err)
 			if err != nil {
-				t.Errorf("unexpected error: %v, awaiting event", err)
+				t.Errorf("unexpected error: %v, awaiting eventChs", err)
 				return
 			}
 			if !strings.HasPrefix(evt.GetHost(), "127.0.0.1:") || evt.GetHost() == listenAddr {
@@ -251,7 +254,7 @@ func TestLogging(t *testing.T) {
 				return
 			}
 			// это грязный хак
-			// protobuf добавляет к структуре свои поля, которвые не видны при приведении к строке и при reflect.DeepEqual
+			// protobuf добавляет к структуре свои поля, которые не видны при приведении к строке и при reflect.DeepEqual
 			// поэтому берем не оригинал сообщения, а только нужные значения
 			logData2 = append(logData2, &Event{Consumer: evt.Consumer, Method: evt.Method})
 		}
@@ -265,7 +268,6 @@ func TestLogging(t *testing.T) {
 
 	biz.Test(getConsumerCtx("biz_admin"), &Nothing{})
 	time.Sleep(2 * time.Millisecond)
-
 	wg.Wait()
 
 	expectedLogData1 := []*Event{
@@ -286,6 +288,7 @@ func TestLogging(t *testing.T) {
 	if !reflect.DeepEqual(logData2, expectedLogData2) {
 		t.Fatalf("logs2 dont match\nhave %+v\nwant %+v", logData2, expectedLogData2)
 	}
+
 }
 
 func TestStat(t *testing.T) {
@@ -369,10 +372,10 @@ func TestStat(t *testing.T) {
 
 	expectedStat1 := &Stat{
 		ByMethod: map[string]uint64{
-			"/main.Biz/Check":        1,
-			"/main.Biz/Add":          1,
-			"/main.Biz/Test":         1,
-			"/main.Admin/Statistics": 1,
+			"/main.Biz/Check":         1,
+			"/main.Biz/AddToEventChs": 1,
+			"/main.Biz/Test":          1,
+			"/main.Admin/Statistics":  1,
 		},
 		ByConsumer: map[string]uint64{
 			"biz_user":  2,
@@ -394,7 +397,7 @@ func TestStat(t *testing.T) {
 	expectedStat1 = &Stat{
 		Timestamp: 0,
 		ByMethod: map[string]uint64{
-			"/main.Biz/Add": 1,
+			"/main.Biz/AddToEventChs": 1,
 		},
 		ByConsumer: map[string]uint64{
 			"biz_admin": 1,
@@ -403,9 +406,9 @@ func TestStat(t *testing.T) {
 	expectedStat2 := &Stat{
 		Timestamp: 0,
 		ByMethod: map[string]uint64{
-			"/main.Biz/Check": 1,
-			"/main.Biz/Add":   2,
-			"/main.Biz/Test":  1,
+			"/main.Biz/Check":         1,
+			"/main.Biz/AddToEventChs": 2,
+			"/main.Biz/Test":          1,
 		},
 		ByConsumer: map[string]uint64{
 			"biz_user":  2,
@@ -425,135 +428,135 @@ func TestStat(t *testing.T) {
 	finish()
 }
 
-//// TestWorkAfterDisconnect almost the same as TestLogging but one logger will disconnect in process
-//// see comments marked CHANGED
-//func TestWorkAfterDisconnect(t *testing.T) {
-//	ctx, finish := context.WithCancel(context.Background())
-//	err := StartMyMicroservice(ctx, listenAddr, ACLData)
-//	if err != nil {
-//		t.Fatalf("cant start server initial: %v", err)
-//	}
-//	wait(1)
-//	defer func() {
-//		finish()
-//		wait(1)
-//	}()
-//
-//	conn := getGrpcConn(t)
-//	defer conn.Close()
-//
-//	biz := NewBizClient(conn)
-//	adm := NewAdminClient(conn)
-//
-//	ctx1, cancel1 := getConsumerCtxWithCancel("logger1")
-//	logStream1, err := adm.Logging(ctx1, &Nothing{})
-//	time.Sleep(1 * time.Millisecond)
-//
-//	logStream2, err := adm.Logging(getConsumerCtx("logger2"), &Nothing{})
-//
-//	logData1 := []*Event{}
-//	logData2 := []*Event{}
-//
-//	wait(1)
-//
-//	go func() {
-//		select {
-//		case <-ctx.Done():
-//			return
-//		case <-time.After(3 * time.Second):
-//			fmt.Println("looks like you dont send anything to log stream in 3 sec")
-//			t.Errorf("looks like you dont send anything to log stream in 3 sec")
-//		}
-//	}()
-//
-//	wg := &sync.WaitGroup{}
-//	wg.Add(2)
-//	go func() {
-//		defer wg.Done()
-//		for i := 0; i < 4; i++ {
-//			evt, err := logStream1.Recv()
-//			// log.Println("logger 1", evt, err)
-//			if err != nil {
-//				t.Errorf("unexpected error: %v, awaiting event", err)
-//				return
-//			}
-//			// evt.Host читайте как evt.RemoteAddr
-//			if !strings.HasPrefix(evt.GetHost(), "127.0.0.1:") || evt.GetHost() == listenAddr {
-//				t.Errorf("bad host: %v", evt.GetHost())
-//				return
-//			}
-//			// это грязный хак
-//			// protobuf добавляет к структуре свои поля, которвые не видны при приведении к строке и при reflect.DeepEqual
-//			// поэтому берем не оригинал сообщения, а только нужные значения
-//			logData1 = append(logData1, &Event{Consumer: evt.Consumer, Method: evt.Method})
-//		}
-//	}()
-//	go func() {
-//		defer wg.Done()
-//		for i := 0; i < 5; i++ {
-//			evt, err := logStream2.Recv()
-//			// log.Println("logger 2", evt, err)
-//			if err != nil {
-//				t.Errorf("unexpected error: %v, awaiting event", err)
-//				return
-//			}
-//			// evt.Host читайте как evt.RemoteAddr
-//			if !strings.HasPrefix(evt.GetHost(), "127.0.0.1:") || evt.GetHost() == listenAddr {
-//				t.Errorf("bad host: %v", evt.GetHost())
-//				return
-//			}
-//			// это грязный хак
-//			// protobuf добавляет к структуре свои поля, которвые не видны при приведении к строке и при reflect.DeepEqual
-//			// поэтому берем не оригинал сообщения, а только нужные значения
-//			logData2 = append(logData2, &Event{Consumer: evt.Consumer, Method: evt.Method})
-//		}
-//	}()
-//
-//	biz.Check(getConsumerCtx("biz_user"), &Nothing{})
-//	time.Sleep(2 * time.Millisecond)
-//
-//	biz.Check(getConsumerCtx("biz_admin"), &Nothing{})
-//	time.Sleep(2 * time.Millisecond)
-//
-//	biz.Test(getConsumerCtx("biz_admin"), &Nothing{})
-//	time.Sleep(2 * time.Millisecond)
-//
-//	// CHANGED
-//	wait(12)
-//	cancel1()
-//	wait(12)
-//
-//	biz.Add(getConsumerCtx("after_disconnect"), &Nothing{})
-//	time.Sleep(2 * time.Millisecond)
-//	biz.Add(getConsumerCtx("after_disconnect"), &Nothing{})
-//	time.Sleep(2 * time.Millisecond)
-//	// END CHANGED
-//
-//	wg.Wait()
-//
-//	expectedLogData1 := []*Event{
-//		{Consumer: "logger2", Method: "/main.Admin/Logging"},
-//		{Consumer: "biz_user", Method: "/main.Biz/Check"},
-//		{Consumer: "biz_admin", Method: "/main.Biz/Check"},
-//		{Consumer: "biz_admin", Method: "/main.Biz/Test"},
-//	}
-//	expectedLogData2 := []*Event{
-//		{Consumer: "biz_user", Method: "/main.Biz/Check"},
-//		{Consumer: "biz_admin", Method: "/main.Biz/Check"},
-//		{Consumer: "biz_admin", Method: "/main.Biz/Test"},
-//		{Consumer: "after_disconnect", Method: "/main.Biz/Add"}, // CHANGED
-//		{Consumer: "after_disconnect", Method: "/main.Biz/Add"}, // CHANGED
-//	}
-//
-//	if !reflect.DeepEqual(logData1, expectedLogData1) {
-//		t.Fatalf("logs1 dont match\nhave %+v\nwant %+v", logData1, expectedLogData1)
-//	}
-//	if !reflect.DeepEqual(logData2, expectedLogData2) {
-//		t.Fatalf("logs2 dont match\nhave %+v\nwant %+v", logData2, expectedLogData2)
-//	}
-//}
-//
-//func __dummyLog() {
-//	fmt.Println(1)
-//	log.Println(1)
-//}
+// TestWorkAfterDisconnect almost the same as TestLogging but one logger will disconnect in process
+// see comments marked CHANGED
+func TestWorkAfterDisconnect(t *testing.T) {
+	ctx, finish := context.WithCancel(context.Background())
+	err := StartMyMicroservice(ctx, listenAddr, ACLData)
+	if err != nil {
+		t.Fatalf("cant start server initial: %v", err)
+	}
+	wait(1)
+	defer func() {
+		finish()
+		wait(1)
+	}()
+
+	conn := getGrpcConn(t)
+	defer conn.Close()
+
+	biz := NewBizClient(conn)
+	adm := NewAdminClient(conn)
+
+	ctx1, cancel1 := getConsumerCtxWithCancel("logger1")
+	logStream1, err := adm.Logging(ctx1, &Nothing{})
+	time.Sleep(1 * time.Millisecond)
+
+	logStream2, err := adm.Logging(getConsumerCtx("logger2"), &Nothing{})
+
+	logData1 := []*Event{}
+	logData2 := []*Event{}
+
+	wait(1)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(3 * time.Second):
+			fmt.Println("looks like you dont send anything to log stream in 3 sec")
+			t.Errorf("looks like you dont send anything to log stream in 3 sec")
+		}
+	}()
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 4; i++ {
+			evt, err := logStream1.Recv()
+			// log.Println("logger 1", evt, err)
+			if err != nil {
+				t.Errorf("unexpected error: %v, awaiting eventChs", err)
+				return
+			}
+			// evt.Host читайте как evt.RemoteAddr
+			if !strings.HasPrefix(evt.GetHost(), "127.0.0.1:") || evt.GetHost() == listenAddr {
+				t.Errorf("bad host: %v", evt.GetHost())
+				return
+			}
+			// это грязный хак
+			// protobuf добавляет к структуре свои поля, которвые не видны при приведении к строке и при reflect.DeepEqual
+			// поэтому берем не оригинал сообщения, а только нужные значения
+			logData1 = append(logData1, &Event{Consumer: evt.Consumer, Method: evt.Method})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5; i++ {
+			evt, err := logStream2.Recv()
+			// log.Println("logger 2", evt, err)
+			if err != nil {
+				t.Errorf("unexpected error: %v, awaiting eventChs", err)
+				return
+			}
+			// evt.Host читайте как evt.RemoteAddr
+			if !strings.HasPrefix(evt.GetHost(), "127.0.0.1:") || evt.GetHost() == listenAddr {
+				t.Errorf("bad host: %v", evt.GetHost())
+				return
+			}
+			// это грязный хак
+			// protobuf добавляет к структуре свои поля, которвые не видны при приведении к строке и при reflect.DeepEqual
+			// поэтому берем не оригинал сообщения, а только нужные значения
+			logData2 = append(logData2, &Event{Consumer: evt.Consumer, Method: evt.Method})
+		}
+	}()
+
+	biz.Check(getConsumerCtx("biz_user"), &Nothing{})
+	time.Sleep(2 * time.Millisecond)
+
+	biz.Check(getConsumerCtx("biz_admin"), &Nothing{})
+	time.Sleep(2 * time.Millisecond)
+
+	biz.Test(getConsumerCtx("biz_admin"), &Nothing{})
+	time.Sleep(2 * time.Millisecond)
+
+	// CHANGED
+	wait(12)
+	cancel1()
+	wait(12)
+
+	biz.Add(getConsumerCtx("after_disconnect"), &Nothing{})
+	time.Sleep(2 * time.Millisecond)
+	biz.Add(getConsumerCtx("after_disconnect"), &Nothing{})
+	time.Sleep(2 * time.Millisecond)
+	// END CHANGED
+
+	wg.Wait()
+
+	expectedLogData1 := []*Event{
+		{Consumer: "logger2", Method: "/main.Admin/Logging"},
+		{Consumer: "biz_user", Method: "/main.Biz/Check"},
+		{Consumer: "biz_admin", Method: "/main.Biz/Check"},
+		{Consumer: "biz_admin", Method: "/main.Biz/Test"},
+	}
+	expectedLogData2 := []*Event{
+		{Consumer: "biz_user", Method: "/main.Biz/Check"},
+		{Consumer: "biz_admin", Method: "/main.Biz/Check"},
+		{Consumer: "biz_admin", Method: "/main.Biz/Test"},
+		{Consumer: "after_disconnect", Method: "/main.Biz/AddToEventChs"}, // CHANGED
+		{Consumer: "after_disconnect", Method: "/main.Biz/AddToEventChs"}, // CHANGED
+	}
+
+	if !reflect.DeepEqual(logData1, expectedLogData1) {
+		t.Fatalf("logs1 dont match\nhave %+v\nwant %+v", logData1, expectedLogData1)
+	}
+	if !reflect.DeepEqual(logData2, expectedLogData2) {
+		t.Fatalf("logs2 dont match\nhave %+v\nwant %+v", logData2, expectedLogData2)
+	}
+}
+
+func __dummyLog() {
+	fmt.Println(1)
+	log.Println(1)
+}

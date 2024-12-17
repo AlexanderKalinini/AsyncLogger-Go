@@ -327,12 +327,12 @@ var file_service_proto_depIdxs = []int32{
 	3, // 2: main.Admin.Logging:input_type -> main.Nothing
 	2, // 3: main.Admin.Statistics:input_type -> main.StatInterval
 	3, // 4: main.Biz.Check:input_type -> main.Nothing
-	3, // 5: main.Biz.Add:input_type -> main.Nothing
+	3, // 5: main.Biz.AddToEventChs:input_type -> main.Nothing
 	3, // 6: main.Biz.Test:input_type -> main.Nothing
 	0, // 7: main.Admin.Logging:output_type -> main.Event
 	1, // 8: main.Admin.Statistics:output_type -> main.Stat
 	3, // 9: main.Biz.Check:output_type -> main.Nothing
-	3, // 10: main.Biz.Add:output_type -> main.Nothing
+	3, // 10: main.Biz.AddToEventChs:output_type -> main.Nothing
 	3, // 11: main.Biz.Test:output_type -> main.Nothing
 	7, // [7:12] is the sub-list for method output_type
 	2, // [2:7] is the sub-list for method input_type

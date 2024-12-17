@@ -222,7 +222,7 @@ func (c *bizClient) Check(ctx context.Context, in *Nothing, opts ...grpc.CallOpt
 
 func (c *bizClient) Add(ctx context.Context, in *Nothing, opts ...grpc.CallOption) (*Nothing, error) {
 	out := new(Nothing)
-	err := c.cc.Invoke(ctx, "/main.Biz/Add", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/main.Biz/AddToEventChs", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +256,7 @@ func (UnimplementedBizServer) Check(context.Context, *Nothing) (*Nothing, error)
 	return nil, status.Errorf(codes.Unimplemented, "method Check not implemented")
 }
 func (UnimplementedBizServer) Add(context.Context, *Nothing) (*Nothing, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Add not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method AddToEventChs not implemented")
 }
 func (UnimplementedBizServer) Test(context.Context, *Nothing) (*Nothing, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Test not implemented")
@@ -302,7 +302,7 @@ func _Biz_Add_Handler(srv interface{}, ctx context.Context, dec func(interface{}
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/main.Biz/Add",
+		FullMethod: "/main.Biz/AddToEventChs",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(BizServer).Add(ctx, req.(*Nothing))
@@ -340,7 +340,7 @@ var Biz_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Biz_Check_Handler,
 		},
 		{
-			MethodName: "Add",
+			MethodName: "AddToEventChs",
 			Handler:    _Biz_Add_Handler,
 		},
 		{
