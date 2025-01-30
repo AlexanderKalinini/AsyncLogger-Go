@@ -76,10 +76,9 @@ func TestServerStartStop(t *testing.T) {
 		t.Fatalf("cant start server initial: %v", err)
 	}
 	wait(1)
-	finish() // при вызове этой функции ваш сервер должен остановиться и освободить порт
+	finish()
 	wait(1)
 
-	// теперь проверим что вы освободили порт и мы можем стартовать сервер ещё раз
 	ctx, finish = context.WithCancel(context.Background())
 	err = StartMyMicroservice(ctx, listenAddr, ACLData)
 	if err != nil {
@@ -89,10 +88,6 @@ func TestServerStartStop(t *testing.T) {
 	finish()
 	wait(1)
 }
-
-//у вас наверняка будет что-то выполняться в отдельных горутинах
-//этим тестом мы проверяем что вы останавливаете все горутины которые у вас были и нет утечек
-//некоторый запас ( goroutinesPerTwoIterations*5 ) остаётся на случай рантайм горутин
 
 func TestServerLeak(t *testing.T) {
 	//return
@@ -112,7 +107,7 @@ func TestServerLeak(t *testing.T) {
 	}
 }
 
-// ACL (права на методы доступа) парсится корректно
+// ACL (права на методы доступа) парсятся корректно
 func TestACLParseError(t *testing.T) {
 	// finish'а тут нет потому что стартовать у вас ничего не должно если не получилось распаковать ACL
 	err := StartMyMicroservice(context.Background(), listenAddr, "{.;")
@@ -168,7 +163,6 @@ func TestACL(t *testing.T) {
 		t.Fatalf("ACL fail: unexpected error: %v", err)
 	}
 
-	fmt.Println("ACL на методах, которые возвращают поток данных")
 	logger, err := adm.Logging(getConsumerCtx("unknown"), &Nothing{})
 	_, err = logger.Recv()
 	if err == nil {
@@ -197,11 +191,9 @@ func TestLogging(t *testing.T) {
 	adm := NewAdminClient(conn)
 
 	logStream1, err := adm.Logging(getConsumerCtx("logger1"), &Nothing{})
-	fmt.Println("start stream 1")
 	time.Sleep(1 * time.Millisecond)
 
 	logStream2, err := adm.Logging(getConsumerCtx("logger2"), &Nothing{})
-	fmt.Println("start stream 2")
 	logData1 := []*Event{}
 	logData2 := []*Event{}
 
@@ -222,27 +214,22 @@ func TestLogging(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 4; i++ {
-			t.Log("stream1 ", i)
 			evt, err := logStream1.Recv()
 			if err != nil {
 				t.Errorf("unexpected error: %v, awaiting eventChs", err)
 				return
 			}
-			// evt.Host читайте как evt.RemoteAddr
 			if !strings.HasPrefix(evt.GetHost(), "127.0.0.1:") || evt.GetHost() == listenAddr {
 				t.Errorf("bad host: %v", evt.GetHost())
 				return
 			}
-			// это грязный хак
-			// protobuf добавляет к структуре свои поля, которые не видны при приведении к строке и при reflect.DeepEqual
-			// поэтому берем не оригинал сообщения, а только нужные значения
+
 			logData1 = append(logData1, &Event{Consumer: evt.Consumer, Method: evt.Method})
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 3; i++ {
-			t.Log("stream2 ", i)
 			evt, err := logStream2.Recv()
 			log.Println("logger 2", evt, err)
 			if err != nil {
@@ -253,9 +240,7 @@ func TestLogging(t *testing.T) {
 				t.Errorf("bad host: %v", evt.GetHost())
 				return
 			}
-			// это грязный хак
-			// protobuf добавляет к структуре свои поля, которые не видны при приведении к строке и при reflect.DeepEqual
-			// поэтому берем не оригинал сообщения, а только нужные значения
+
 			logData2 = append(logData2, &Event{Consumer: evt.Consumer, Method: evt.Method})
 		}
 	}()
@@ -288,7 +273,6 @@ func TestLogging(t *testing.T) {
 	if !reflect.DeepEqual(logData2, expectedLogData2) {
 		t.Fatalf("logs2 dont match\nhave %+v\nwant %+v", logData2, expectedLogData2)
 	}
-
 }
 
 func TestStat(t *testing.T) {

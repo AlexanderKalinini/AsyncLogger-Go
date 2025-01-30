@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"io"
 	"log"
 	"net"
 	"strings"
@@ -17,20 +19,37 @@ import (
 type Logger struct {
 	//	eventChs []*Event
 	mu       sync.Mutex
-	eventChs []chan *Event
+	eventChs map[chan *Event]struct{}
 }
 
-func (log *Logger) AddToEventChs(event *Event) chan *Event {
-	resultStream := make(chan *Event, 10)
-	resultStream <- event
-	return resultStream
+func (log *Logger) Subscribe() chan *Event {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	newCh := make(chan *Event, 10)
+	log.eventChs[newCh] = struct{}{}
+	return newCh
+}
+
+func (log *Logger) Unsubscribe(ch chan *Event) {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	delete(log.eventChs, ch)
+	close(ch)
+}
+
+func (log *Logger) Log(event *Event) {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	for ch := range log.eventChs {
+		ch <- event
+	}
 }
 
 func (log *Logger) FanIn() chan *Event {
 	finalStream := make(chan *Event, 10)
 	var wg sync.WaitGroup
 
-	for _, ch := range log.eventChs {
+	for ch := range log.eventChs {
 		chCopy := ch
 		wg.Add(1)
 		go func() {
@@ -51,18 +70,16 @@ func (log *Logger) FanIn() chan *Event {
 
 func StartMyMicroservice(ctx context.Context, listenAddr string, aclData string) error {
 	var accessData map[string][]string
-
+	var logger = &Logger{
+		eventChs: make(map[chan *Event]struct{}),
+	}
 	err := json.Unmarshal([]byte(aclData), &accessData)
 	if err != nil {
 		return err
 	}
 
-	logger := &Logger{
-		eventChs: make([]chan *Event, 10),
-	}
-
 	go func() {
-		lis, err := net.Listen("tcp", listenAddr)
+		listener, err := net.Listen("tcp", listenAddr)
 		if err != nil {
 			log.Fatalln("Cant listen port", err)
 		}
@@ -78,11 +95,11 @@ func StartMyMicroservice(ctx context.Context, listenAddr string, aclData string)
 			logger:  logger,
 		})
 
-		go server.Serve(lis)
+		go server.Serve(listener)
 
 		<-ctx.Done()
 		server.Stop()
-		err = lis.Close()
+		err = listener.Close()
 		if err != nil {
 			return
 		}
@@ -98,7 +115,6 @@ type MyBizServer struct {
 }
 
 func (myBizServer *MyBizServer) Test(ctx context.Context, nothing *Nothing) (*Nothing, error) {
-
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		err := checkAccess(md, myBizServer.aclData, "test")
@@ -110,14 +126,11 @@ func (myBizServer *MyBizServer) Test(ctx context.Context, nothing *Nothing) (*No
 		return nil, status.Error(codes.Unauthenticated, "Unauthenticated")
 	}
 
-	events := myBizServer.logger.eventChs
-	events = append(events, myBizServer.logger.AddToEventChs(&Event{
+	myBizServer.logger.Log(&Event{
 		Host:     "127.0.0.1:8080",
 		Consumer: md.Get("consumer")[0],
 		Method:   "/main.Biz/Test",
-	}))
-
-	fmt.Println("AddTests")
+	})
 
 	return nothing, nil
 }
@@ -134,13 +147,11 @@ func (myBizServer *MyBizServer) Check(ctx context.Context, nothing *Nothing) (*N
 		return nil, status.Error(codes.Unauthenticated, "Unauthenticated")
 	}
 
-	events := myBizServer.logger.eventChs
-	fmt.Println("AddCheck")
-	events = append(events, myBizServer.logger.AddToEventChs(&Event{
+	myBizServer.logger.Log(&Event{
 		Host:     "127.0.0.1:8080",
 		Consumer: md.Get("consumer")[0],
 		Method:   "/main.Biz/Check",
-	}))
+	})
 
 	return nothing, nil
 }
@@ -164,6 +175,7 @@ func checkAccess(md metadata.MD, aclData map[string][]string, method string) err
 }
 
 type MyAdminServer struct {
+	mu sync.Mutex
 	UnimplementedAdminServer
 	aclData map[string][]string
 	logger  *Logger
@@ -180,18 +192,21 @@ func (adminServer *MyAdminServer) Logging(nothing *Nothing, stream Admin_Logging
 	} else {
 		return status.Error(codes.Unauthenticated, "Unauthenticated")
 	}
-	events := adminServer.logger.eventChs
-	events = append(events, adminServer.logger.AddToEventChs(&Event{
+
+	adminServer.logger.Log(&Event{
 		Host:     "127.0.0.1:8080",
 		Consumer: md.Get("consumer")[0],
 		Method:   "/main.Admin/Logging",
-	}))
-	fmt.Println("AddToEventChs log logging " + md.Get("consumer")[0])
-	streamCh := adminServer.logger.FanIn()
-	for event := range streamCh {
-		fmt.Println("index")
+	})
+	eventCh := adminServer.logger.Subscribe()
+	defer adminServer.logger.Unsubscribe(eventCh)
+	for event := range eventCh {
 		err := stream.Send(event)
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
+				fmt.Println("Client closed connection")
+				return nil
+			}
 			fmt.Println(err)
 		}
 	}
